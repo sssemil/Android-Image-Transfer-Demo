@@ -396,7 +396,9 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                                 mMainImage.setImageBitmap(bitmap);
                             }
                             else {
-                                Log.w(TAG, "JPG header missing!! Image data corrupt.");
+                                Log.w(TAG, "JPG header missing! Gonna guess.");
+                                bitmap = BitmapFactory.decodeByteArray(mDataBuffer, 0, mDataBuffer.length);
+                                mMainImage.setImageBitmap(bitmap);
                             }
                         } catch (Exception e) {
                             Log.w(TAG, "Bitmapfactory fail :(");
