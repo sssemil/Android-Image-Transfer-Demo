@@ -21,7 +21,8 @@ import java.util.TimerTask;
 /**
  * Created by too1 on 2016-01-25.
  */
-public class IntensityLedButton  extends View {
+public class IntensityLedButton extends View {
+    final Handler timeHandle = new Handler();
     private boolean mEnabled;
     private String mText;
     private float mTextHeight, mTextOffsetLeft;
@@ -32,48 +33,51 @@ public class IntensityLedButton  extends View {
     private float mLedIntensity = 1.0f;
     private float mIntSelectorX, mIntSelectorY;
     private float mTime = 0.0f;
+    final Runnable timeRunnable = new Runnable() {
+        public void run() {
+            mTime += 0.1f;
+            invalidate();
+        }
+    };
     private Drawable mBackgroundDrawable, mButtonOnDrawable, mButtonOffDrawable, mIntensitySelectorDrawable;
-
     private boolean mInIntensityDrag = false;
-
     private RectF mRegion, mRegionPadded, mButtonRegion, mIntensitySelectorRegion;
-
     private OnLedChangeListener mLedChangeListener = null;
 
     public IntensityLedButton(Context context, AttributeSet attrs) {
         super(context, attrs);
         TypedArray a = context.getTheme().obtainStyledAttributes(attrs, R.styleable.IntensityLedButton, 0, 0);
 
-        try{
-            mEnabled             = a.getBoolean(R.styleable.IntensityLedButton_enabled, true);
-            mText                = a.getString(R.styleable.IntensityLedButton_text);
-            mTextHeight          = a.getDimension(R.styleable.IntensityLedButton_textHeight, 0.0f);
-            mTextOffsetLeft      = a.getDimension(R.styleable.IntensityLedButton_textOffsetLeft, 20.0f);
-            mTextColor           = a.getColor(R.styleable.IntensityLedButton_textColor, Color.WHITE);
-            mBackgroundDrawable  = a.getDrawable(R.styleable.IntensityLedButton_backgroundDrawable);
+        try {
+            mEnabled = a.getBoolean(R.styleable.IntensityLedButton_enabled, true);
+            mText = a.getString(R.styleable.IntensityLedButton_text);
+            mTextHeight = a.getDimension(R.styleable.IntensityLedButton_textHeight, 0.0f);
+            mTextOffsetLeft = a.getDimension(R.styleable.IntensityLedButton_textOffsetLeft, 20.0f);
+            mTextColor = a.getColor(R.styleable.IntensityLedButton_textColor, Color.WHITE);
+            mBackgroundDrawable = a.getDrawable(R.styleable.IntensityLedButton_backgroundDrawable);
             mButtonOnDrawable = a.getDrawable(R.styleable.IntensityLedButton_buttonOnDrawable);
             mButtonOffDrawable = a.getDrawable(R.styleable.IntensityLedButton_buttonOffDrawable);
             mIntensitySelectorWidth = a.getFloat(R.styleable.IntensityLedButton_intensitySelectorWidth, 0.03f);
             mIntensitySelectorDrawable = a.getDrawable(R.styleable.IntensityLedButton_intensitySelectorDrawable);
-        }finally {
+        } finally {
             a.recycle();
         }
-        if(mText == null) mText = "";
+        if (mText == null) mText = "";
         init();
 
     }
 
-    public void setLedChangedListener(OnLedChangeListener listener){
+    public void setLedChangedListener(OnLedChangeListener listener) {
         mLedChangeListener = listener;
     }
 
-    private void init(){
+    private void init() {
         mTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mTextPaint.setStyle(Paint.Style.FILL);
         mTextPaint.setColor(mTextColor);
-        if(mTextHeight == 0.0f){
+        if (mTextHeight == 0.0f) {
             mTextHeight = mTextPaint.getTextSize();
-        }else{
+        } else {
             mTextPaint.setTextSize(mTextHeight);
         }
 
@@ -92,36 +96,27 @@ public class IntensityLedButton  extends View {
         }, 0, 100);
     }
 
-    public void setEnabled(boolean enabled){
+    public void setEnabled(boolean enabled) {
         mEnabled = enabled;
         invalidate();
     }
 
-    final Runnable timeRunnable = new Runnable(){
-        public void run(){
-            mTime += 0.1f;
-            invalidate();
-        }
-    };
-
-    final Handler timeHandle = new Handler();
-
-    private void updateTime(){
+    private void updateTime() {
         timeHandle.post(timeRunnable);
     }
 
-    public void resetSelector(){
+    public void resetSelector() {
         mLedIntensity = 0.0f;
         setIntensitySelectorPosition(0.5f);
         invalidate();
     }
 
-    private void setIntensitySelectorPosition(float angle){
+    private void setIntensitySelectorPosition(float angle) {
         float selectorWidth = mIntensitySelectorWidth * mRegionPadded.width();
-        mIntSelectorX = (mRegionPadded.right - mRegionPadded.left) * 0.5f + (float)Math.cos((double) angle * Math.PI * 2.0 + Math.PI * 0.5) * mRegionPadded.width() * 0.34f;
+        mIntSelectorX = (mRegionPadded.right - mRegionPadded.left) * 0.5f + (float) Math.cos((double) angle * Math.PI * 2.0 + Math.PI * 0.5) * mRegionPadded.width() * 0.34f;
         mIntSelectorY = (mRegionPadded.bottom - mRegionPadded.top) * 0.5f + (float) Math.sin((double) angle * Math.PI * 2.0 + Math.PI * 0.5) * mRegionPadded.height() * 0.34f;
 
-        mIntensitySelectorDrawable.setBounds((int)(mIntSelectorX - selectorWidth), (int)(mIntSelectorY - selectorWidth), (int)(mIntSelectorX + selectorWidth), (int)(mIntSelectorY + selectorWidth));
+        mIntensitySelectorDrawable.setBounds((int) (mIntSelectorX - selectorWidth), (int) (mIntSelectorY - selectorWidth), (int) (mIntSelectorX + selectorWidth), (int) (mIntSelectorY + selectorWidth));
         /*mIntensitySelectorDrawable.setBounds((int) (mRgbRegion.left + mRgbRegion.width() * mRgbSelectorX - mRgbSelectorSize),
                 (int) (mRgbRegion.top + mRgbRegion.height() * mRgbSelectorY - mRgbSelectorSize),
                 (int) (mRgbRegion.right - mRgbRegion.width() * (1.0f - mRgbSelectorX) + mRgbSelectorSize),
@@ -130,15 +125,15 @@ public class IntensityLedButton  extends View {
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        float xpad = (float)(getPaddingLeft() + getPaddingRight());
-        float ypad = (float)(getPaddingTop() + getPaddingBottom());
+        float xpad = (float) (getPaddingLeft() + getPaddingRight());
+        float ypad = (float) (getPaddingTop() + getPaddingBottom());
         mRegion.set(getLeft(), getTop(), (float) w, (float) h);
         mRegionPadded.set(getPaddingLeft(), getPaddingTop(), (float) w - getPaddingRight(), (float) h - getPaddingBottom());
         mBackgroundDrawable.setBounds((int) mRegionPadded.left, (int) mRegionPadded.top, (int) mRegionPadded.right, (int) mRegionPadded.bottom);
 
         // Set RGB Icon region
-        float mIconWidth = mRegionPadded.width()*0.57f;
-        float mIconHeight = mRegionPadded.height()*0.57f;
+        float mIconWidth = mRegionPadded.width() * 0.57f;
+        float mIconHeight = mRegionPadded.height() * 0.57f;
         mButtonRegion.set((getWidth() - mIconWidth) * 0.5f,
                 getHeight() * 0.5f - mIconHeight * 0.5f,
                 (getWidth() + mIconWidth) * 0.5f,
@@ -154,17 +149,16 @@ public class IntensityLedButton  extends View {
         super.onDraw(canvas);
         mBackgroundDrawable.setAlpha(mEnabled ? 255 : 84);
         mBackgroundDrawable.draw(canvas);
-        if(mLedOn) {
+        if (mLedOn) {
             mButtonOnDrawable.setAlpha(mEnabled ? 255 : 40);
             mButtonOnDrawable.draw(canvas);
-        }
-        else {
+        } else {
             mButtonOffDrawable.setAlpha(mEnabled ? 255 : 40);
             mButtonOffDrawable.draw(canvas);
         }
         mTextPaint.setAlpha(mEnabled ? 255 : 40);
-        canvas.drawText(mText, mRegionPadded.left + (mRegionPadded.width()-mTextPaint.measureText(mText))/2.0f, mRegionPadded.top + mRegionPadded.height()*0.78f + mTextHeight, mTextPaint);
-        if(mEnabled){
+        canvas.drawText(mText, mRegionPadded.left + (mRegionPadded.width() - mTextPaint.measureText(mText)) / 2.0f, mRegionPadded.top + mRegionPadded.height() * 0.78f + mTextHeight, mTextPaint);
+        if (mEnabled) {
             mIntensitySelectorDrawable.setAlpha(mLedOn ? 255 : 100);
             mIntensitySelectorDrawable.draw(canvas);
         }
@@ -181,28 +175,27 @@ public class IntensityLedButton  extends View {
         normalizedY = (rawY - mRegionPadded.top) / mRegionPadded.height();
         normalizedX = (normalizedX - 0.5f) * 2.0f;
         normalizedY = (normalizedY - 0.5f) * 2.0f;
-        polarAngle = (float)Math.atan2((double) normalizedX, -(double) normalizedY);
-        polarAngle = (polarAngle + (float)Math.PI) / (2.0f * (float)Math.PI);
-        polarRadius = (float)Math.sqrt(Math.pow((double) normalizedX, 2.0) + Math.pow((double) normalizedY, 2.0));
+        polarAngle = (float) Math.atan2(normalizedX, -(double) normalizedY);
+        polarAngle = (polarAngle + (float) Math.PI) / (2.0f * (float) Math.PI);
+        polarRadius = (float) Math.sqrt(Math.pow(normalizedX, 2.0) + Math.pow(normalizedY, 2.0));
 
-        if(event.getAction() == MotionEvent.ACTION_DOWN){
-            if(mEnabled) {
-                if(normalizedX >= -1.0f && normalizedX <= 1.0f && normalizedY >= -1.0f && normalizedY < 1.0f){
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            if (mEnabled) {
+                if (normalizedX >= -1.0f && normalizedX <= 1.0f && normalizedY >= -1.0f && normalizedY < 1.0f) {
                     //Log.d("App", "angle: " + String.valueOf(polarAngle) + ", radius: " + String.valueOf(polarRadius));
                     // Check if middle button is pressed
-                    if(polarRadius < 0.5f)
-                    {
+                    if (polarRadius < 0.5f) {
                         mLedOn = !mLedOn;
-                        if(mLedChangeListener != null){
+                        if (mLedChangeListener != null) {
                             mLedChangeListener.onIntensityChanged(this, mLedOn, mLedIntensity);
                         }
                     }
                     // Check if intensity ring is pressed
-                    else if(mLedOn && polarRadius < 0.85f && (polarAngle > intAngOffset && polarAngle < (1.0f - intAngOffset))) {
+                    else if (mLedOn && polarRadius < 0.85f && (polarAngle > intAngOffset && polarAngle < (1.0f - intAngOffset))) {
                         mLedIntensity = (polarAngle - intAngOffset) / (1.0f - 2.0f * intAngOffset);
                         setIntensitySelectorPosition(polarAngle);
                         mInIntensityDrag = true;
-                        if(mLedChangeListener != null){
+                        if (mLedChangeListener != null) {
                             mLedChangeListener.onIntensityChanged(this, mLedOn, mLedIntensity);
                         }
                     }
@@ -210,11 +203,10 @@ public class IntensityLedButton  extends View {
                     return true;
                 }
             }
-        }
-        else if(event.getAction() == MotionEvent.ACTION_MOVE){
-            if(mInIntensityDrag){
-                if(polarRadius > 0.3f) {
-                    Log.d("App", "angle: " + String.valueOf(polarAngle) + ", radius: " + String.valueOf(polarRadius));
+        } else if (event.getAction() == MotionEvent.ACTION_MOVE) {
+            if (mInIntensityDrag) {
+                if (polarRadius > 0.3f) {
+                    Log.d("App", "angle: " + polarAngle + ", radius: " + polarRadius);
                     if (polarAngle < intAngOffset) {
                         mLedIntensity = 0.0f;
                         setIntensitySelectorPosition(intAngOffset);
@@ -227,11 +219,9 @@ public class IntensityLedButton  extends View {
                     }
                     invalidate();
                     return true;
-                }
-                else mInIntensityDrag = false;
+                } else mInIntensityDrag = false;
             }
-        }
-        else if(event.getAction() == MotionEvent.ACTION_UP){
+        } else if (event.getAction() == MotionEvent.ACTION_UP) {
             mInIntensityDrag = false;
         }
 

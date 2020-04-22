@@ -14,7 +14,7 @@ import android.widget.TextView;
 /**
  * Created by too1 on 10.01.14.
  */
-public class SettingsActivity  extends Activity {
+public class SettingsActivity extends Activity {
     public static final String SETTINGS_PARAM_PWM_MIN = "SPAR_PWMMIN";
     public static final String SETTINGS_PARAM_PWM_MAX = "SPAR_PWMMAX";
     public static final String SETTINGS_PARAM_RED_THROTTLE = "SPAR_REDTHROTTLE";
@@ -28,11 +28,11 @@ public class SettingsActivity  extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.settings);
-        mTextViewPwmMin = (TextView)findViewById(R.id.text_view_pwm_min);
-        mTextViewPwmMax = (TextView)findViewById(R.id.text_view_pwm_max);
-        mSeekBarPwmMin = (SeekBar)findViewById(R.id.seekbar_pwm_min);
-        mSeekBarPwmMax = (SeekBar)findViewById(R.id.seekbar_pwm_max);
-        mCheckBoxRedThrottle = (CheckBox)findViewById(R.id.checkbox_redthrottle);
+        mTextViewPwmMin = (TextView) findViewById(R.id.text_view_pwm_min);
+        mTextViewPwmMax = (TextView) findViewById(R.id.text_view_pwm_max);
+        mSeekBarPwmMin = (SeekBar) findViewById(R.id.seekbar_pwm_min);
+        mSeekBarPwmMax = (SeekBar) findViewById(R.id.seekbar_pwm_max);
+        mCheckBoxRedThrottle = (CheckBox) findViewById(R.id.checkbox_redthrottle);
         mPwmMin = getIntent().getExtras().getInt(SETTINGS_PARAM_PWM_MIN);
         mPwmMax = getIntent().getExtras().getInt(SETTINGS_PARAM_PWM_MAX);
         mReduceThrottle = getIntent().getExtras().getBoolean(SETTINGS_PARAM_RED_THROTTLE);
@@ -76,14 +76,15 @@ public class SettingsActivity  extends Activity {
             }
         });
     }
-    private void setGuiText(){
-        mTextViewPwmMin.setText(getString(R.string.settings_text_pwm_min_base) + " (" + String.valueOf(mPwmMin) + "%)");
-        mTextViewPwmMax.setText(getString(R.string.settings_text_pwm_max_base) + " (" + String.valueOf(mPwmMax) + "%)");
+
+    private void setGuiText() {
+        mTextViewPwmMin.setText(getString(R.string.settings_text_pwm_min_base) + " (" + mPwmMin + "%)");
+        mTextViewPwmMax.setText(getString(R.string.settings_text_pwm_max_base) + " (" + mPwmMax + "%)");
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch(item.getItemId()){
+        switch (item.getItemId()) {
             case android.R.id.home:
                 NavUtils.navigateUpFromSameTask(this);
                 return true;
@@ -92,7 +93,7 @@ public class SettingsActivity  extends Activity {
     }
 
     public void onCheckboxThrottleClicked(View view) {
-        mReduceThrottle = ((CheckBox)view).isChecked();
+        mReduceThrottle = ((CheckBox) view).isChecked();
     }
 
     public void onOkPressed(View view) {

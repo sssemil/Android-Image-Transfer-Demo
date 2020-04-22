@@ -16,12 +16,6 @@
 
 package com.nordicsemi.ImageTransferDemo;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -49,32 +43,71 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-public class DeviceListActivity extends Activity {
-    private BluetoothAdapter mBluetoothAdapter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
-   // private BluetoothAdapter mBtAdapter;
-    private TextView mEmptyList;
+public class DeviceListActivity extends Activity {
     public static final String TAG = "DeviceListActivity";
-    
+    private static final long SCAN_PERIOD = 10000; //10 seconds
     List<BluetoothDevice> deviceList;
+    Map<String, Integer> devRssiValues;
+    private BluetoothAdapter mBluetoothAdapter;
+    // private BluetoothAdapter mBtAdapter;
+    private TextView mEmptyList;
     private DeviceAdapter deviceAdapter;
     private ServiceConnection onService = null;
-    Map<String, Integer> devRssiValues;
-    private static final long SCAN_PERIOD = 10000; //10 seconds
     private Handler mHandler;
     private boolean mScanning;
+    private BluetoothAdapter.LeScanCallback mLeScanCallback =
+            new BluetoothAdapter.LeScanCallback() {
 
+                @Override
+                public void onLeScan(final BluetoothDevice device, final int rssi, final byte[] scanRecord) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
 
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    addDevice(device, rssi, scanRecord);
+                                }
+                            });
+
+                        }
+                    });
+                }
+            };
+    private OnItemClickListener mDeviceClickListener = new OnItemClickListener() {
+
+        @Override
+        public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+            BluetoothDevice device = deviceList.get(position);
+            mBluetoothAdapter.stopLeScan(mLeScanCallback);
+
+            Bundle b = new Bundle();
+            b.putString(BluetoothDevice.EXTRA_DEVICE, deviceList.get(position).getAddress());
+
+            Intent result = new Intent();
+            result.putExtras(b);
+            setResult(Activity.RESULT_OK, result);
+            finish();
+
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-    	
+
         super.onCreate(savedInstanceState);
         Log.d(TAG, "onCreate");
         getWindow().setFeatureInt(Window.FEATURE_CUSTOM_TITLE, R.layout.title_bar);
         setContentView(R.layout.device_list);
         android.view.WindowManager.LayoutParams layoutParams = this.getWindow().getAttributes();
-        layoutParams.gravity=Gravity.TOP;
+        layoutParams.gravity = Gravity.TOP;
         layoutParams.y = 200;
         mHandler = new Handler();
         // Use this check to determine whether BLE is supported on the device.  Then you can
@@ -102,9 +135,9 @@ public class DeviceListActivity extends Activity {
         cancelButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-            	
-            	if (mScanning==false) scanLeDevice(true); 
-            	else finish();
+
+                if (mScanning == false) scanLeDevice(true);
+                else finish();
             }
         });
 
@@ -121,10 +154,10 @@ public class DeviceListActivity extends Activity {
         newDevicesListView.setAdapter(deviceAdapter);
         newDevicesListView.setOnItemClickListener(mDeviceClickListener);
 
-           scanLeDevice(true);
+        scanLeDevice(true);
 
     }
-    
+
     private void scanLeDevice(final boolean enable) {
         final Button cancelButton = (Button) findViewById(R.id.btn_cancel);
         if (enable) {
@@ -132,9 +165,9 @@ public class DeviceListActivity extends Activity {
             mHandler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
-					mScanning = false;
+                    mScanning = false;
                     mBluetoothAdapter.stopLeScan(mLeScanCallback);
-                        
+
                     cancelButton.setText(R.string.scan);
 
                 }
@@ -151,49 +184,28 @@ public class DeviceListActivity extends Activity {
 
     }
 
-    private BluetoothAdapter.LeScanCallback mLeScanCallback =
-            new BluetoothAdapter.LeScanCallback() {
-
-        @Override
-        public void onLeScan(final BluetoothDevice device, final int rssi, final byte[] scanRecord) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                	
-                	  runOnUiThread(new Runnable() {
-                          @Override
-                          public void run() {
-                              addDevice(device,rssi, scanRecord);
-                          }
-                      });
-                   
-                }
-            });
-        }
-    };
-
-    private UUID findServiceUuidInScanRecord(byte[] scanRecord){
+    private UUID findServiceUuidInScanRecord(byte[] scanRecord) {
         final char[] hexArray = "0123456789abcdef".toCharArray();
-        for(int index = 0; (index >= 0 && index < scanRecord.length-1); ) {
+        for (int index = 0; (index >= 0 && index < scanRecord.length - 1); ) {
             int length = scanRecord[index];
-            int header = scanRecord[index+1];
-            if(length == 0 || header == 0) {
+            int header = scanRecord[index + 1];
+            if (length == 0 || header == 0) {
                 return null;
             }
-            if(length == 17 && header == 7){
+            if (length == 17 && header == 7) {
                 String stringUUID = "";
-                for(int uIndex = 0; uIndex < 16; uIndex++){
-                    int hexVal = scanRecord[index + 2 + (15-uIndex)] & 0xFF;
+                for (int uIndex = 0; uIndex < 16; uIndex++) {
+                    int hexVal = scanRecord[index + 2 + (15 - uIndex)] & 0xFF;
                     stringUUID += hexArray[hexVal / 16];
                     stringUUID += hexArray[hexVal % 16];
-                    if(uIndex == 3 || uIndex == 5 || uIndex == 7 || uIndex == 9){
+                    if (uIndex == 3 || uIndex == 5 || uIndex == 7 || uIndex == 9) {
                         stringUUID += "-";
                     }
                 }
                 UUID returnUUID = UUID.fromString(stringUUID);
                 return returnUUID;
             }
-            index += ((int)length + 1);
+            index += (length + 1);
         }
         return null;
     }
@@ -202,7 +214,7 @@ public class DeviceListActivity extends Activity {
         boolean deviceFound = false;
 
         UUID serviceUUID = findServiceUuidInScanRecord(scanRecord);
-        if(serviceUUID != null && serviceUUID.equals(ImageTransferService.IMAGE_TRANSFER_SERVICE_UUID)) {
+        if (serviceUUID != null && serviceUUID.equals(ImageTransferService.IMAGE_TRANSFER_SERVICE_UUID)) {
             for (BluetoothDevice listDev : deviceList) {
                 if (listDev.getAddress().equals(device.getAddress())) {
                     deviceFound = true;
@@ -223,7 +235,7 @@ public class DeviceListActivity extends Activity {
     @Override
     public void onStart() {
         super.onStart();
-       
+
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
         filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
@@ -233,41 +245,25 @@ public class DeviceListActivity extends Activity {
     public void onStop() {
         super.onStop();
         mBluetoothAdapter.stopLeScan(mLeScanCallback);
-    
+
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         mBluetoothAdapter.stopLeScan(mLeScanCallback);
-        
+
     }
 
-    private OnItemClickListener mDeviceClickListener = new OnItemClickListener() {
-    	
-        @Override
-        public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-            BluetoothDevice device = deviceList.get(position);
-            mBluetoothAdapter.stopLeScan(mLeScanCallback);
-  
-            Bundle b = new Bundle();
-            b.putString(BluetoothDevice.EXTRA_DEVICE, deviceList.get(position).getAddress());
-
-            Intent result = new Intent();
-            result.putExtras(b);
-            setResult(Activity.RESULT_OK, result);
-            finish();
-        	
-        }
-    };
-
-
-    
     protected void onPause() {
         super.onPause();
         scanLeDevice(false);
     }
-    
+
+    private void showMessage(String msg) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+    }
+
     class DeviceAdapter extends BaseAdapter {
         Context context;
         List<BluetoothDevice> devices;
@@ -319,7 +315,7 @@ public class DeviceListActivity extends Activity {
             tvname.setText(device.getName());
             tvadd.setText(device.getAddress());
             if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
-                Log.i(TAG, "device::"+device.getName());
+                Log.i(TAG, "device::" + device.getName());
                 tvname.setTextColor(Color.WHITE);
                 tvadd.setTextColor(Color.WHITE);
                 tvpaired.setTextColor(Color.GRAY);
@@ -327,7 +323,7 @@ public class DeviceListActivity extends Activity {
                 tvpaired.setText(R.string.paired);
                 tvrssi.setVisibility(View.VISIBLE);
                 tvrssi.setTextColor(Color.WHITE);
-                
+
             } else {
                 tvname.setTextColor(Color.WHITE);
                 tvadd.setTextColor(Color.WHITE);
@@ -337,8 +333,5 @@ public class DeviceListActivity extends Activity {
             }
             return vg;
         }
-    }
-    private void showMessage(String msg) {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
 }

@@ -53,10 +53,10 @@ import java.util.Arrays;
 import java.util.Date;
 
 public class MainActivity extends Activity implements RadioGroup.OnCheckedChangeListener {
+    public static final String TAG = "image_transfer_main";
     private static final int REQUEST_SELECT_DEVICE = 1;
     private static final int REQUEST_ENABLE_BT = 2;
     private static final int UART_PROFILE_READY = 10;
-    public static final String TAG = "image_transfer_main";
     private static final int UART_PROFILE_CONNECTED = 20;
     private static final int UART_PROFILE_DISCONNECTED = 21;
     private static final int STATE_OFF = 10;
@@ -66,20 +66,7 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     private static final String FONT_LABEL_APP_ERROR = "<font color='#EE0000'>";
     private static final String FONT_LABEL_PEER_NORMAL = "<font color='#EE0000'>";
     private static final String FONT_LABEL_PEER_ERROR = "<font color='#EE0000'>";
-
-    Runnable guiUpdateRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (mTextViewFileLabel != null) {
-                mTextViewFileLabel.setText("Incoming: " + mBytesTransfered + "/" + mBytesTotal);
-                if (mBytesTotal > 0) {
-                    mProgressBarFileStatus.setProgress(mBytesTransfered * 100 / mBytesTotal);
-                }
-            }
-            guiUpdateHandler.postDelayed(this, 50);
-        }
-    };
-
+    Handler guiUpdateHandler = new Handler();
     private String mLogMessage = "";
 
     private TextView mTextViewLog, mTextViewFileLabel, mTextViewPictureStatus, mTextViewPictureFpsStatus, mTextViewConInt, mTextViewMtu;
@@ -99,9 +86,20 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
 
     // File transfer variables
     private int mBytesTransfered = 0, mBytesTotal = 0;
+    Runnable guiUpdateRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mTextViewFileLabel != null) {
+                mTextViewFileLabel.setText("Incoming: " + mBytesTransfered + "/" + mBytesTotal);
+                if (mBytesTotal > 0) {
+                    mProgressBarFileStatus.setProgress(mBytesTransfered * 100 / mBytesTotal);
+                }
+            }
+            guiUpdateHandler.postDelayed(this, 50);
+        }
+    };
     private byte[] mDataBuffer;
     private boolean mStreamActive = false;
-
     private ProgressDialog mConnectionProgDialog;
     private final BroadcastReceiver UARTStatusChangeReceiver = new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
@@ -280,7 +278,16 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         }
     };
 
-    Handler guiUpdateHandler = new Handler();
+    private static IntentFilter makeGattUpdateIntentFilter() {
+        final IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(ImageTransferService.ACTION_GATT_CONNECTED);
+        intentFilter.addAction(ImageTransferService.ACTION_GATT_DISCONNECTED);
+        intentFilter.addAction(ImageTransferService.ACTION_GATT_SERVICES_DISCOVERED);
+        intentFilter.addAction(ImageTransferService.ACTION_DATA_AVAILABLE);
+        intentFilter.addAction(ImageTransferService.ACTION_IMG_INFO_AVAILABLE);
+        intentFilter.addAction(ImageTransferService.DEVICE_DOES_NOT_SUPPORT_IMAGE_TRANSFER);
+        return intentFilter;
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -503,17 +510,6 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     @Override
     public void onCheckedChanged(RadioGroup group, int checkedId) {
 
-    }
-
-    private static IntentFilter makeGattUpdateIntentFilter() {
-        final IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(ImageTransferService.ACTION_GATT_CONNECTED);
-        intentFilter.addAction(ImageTransferService.ACTION_GATT_DISCONNECTED);
-        intentFilter.addAction(ImageTransferService.ACTION_GATT_SERVICES_DISCOVERED);
-        intentFilter.addAction(ImageTransferService.ACTION_DATA_AVAILABLE);
-        intentFilter.addAction(ImageTransferService.ACTION_IMG_INFO_AVAILABLE);
-        intentFilter.addAction(ImageTransferService.DEVICE_DOES_NOT_SUPPORT_IMAGE_TRANSFER);
-        return intentFilter;
     }
 
     @Override
