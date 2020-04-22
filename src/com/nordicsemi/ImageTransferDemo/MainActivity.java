@@ -30,6 +30,7 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
 import android.support.v4.content.LocalBroadcastManager;
@@ -45,6 +46,8 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.text.DateFormat;
@@ -102,7 +105,7 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     private boolean mStreamActive = false;
     private ProgressDialog mConnectionProgDialog;
     private final BroadcastReceiver UARTStatusChangeReceiver = new BroadcastReceiver() {
-        public void onReceive(Context context, Intent intent) {
+        public void onReceive(final Context context, Intent intent) {
             String action = intent.getAction();
 
             final Intent mIntent = intent;
@@ -168,6 +171,18 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                                 mTextViewPictureFpsStatus.setVisibility(View.VISIBLE);
                                 Bitmap bitmap;
                                 Log.w(TAG, "attempting JPEG decode");
+
+                                // save image data to storage
+                                File outFile = new File(Environment.getExternalStorageDirectory(),
+                                        "/image_" + System.currentTimeMillis() + ".bin");
+                                try (FileOutputStream outputStream = new FileOutputStream(outFile)) {
+                                    outputStream.write(mDataBuffer);
+                                    outputStream.flush();
+                                } catch (Exception e) {
+                                    Log.e(TAG, "Write to file failed");
+                                    e.printStackTrace();
+                                }
+
                                 try {
                                     byte[] jpgHeader = new byte[]{-1, -40, -1, -32};
                                     if (Arrays.equals(jpgHeader, Arrays.copyOfRange(mDataBuffer, 0, 4))) {
