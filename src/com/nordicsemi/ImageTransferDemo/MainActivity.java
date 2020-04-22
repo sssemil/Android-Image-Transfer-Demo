@@ -16,20 +16,10 @@
 
 package com.nordicsemi.ImageTransferDemo;
 
-import java.io.ByteArrayInputStream;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.text.DateFormat;
-import java.text.DecimalFormat;
-import java.util.Arrays;
-import java.util.Date;
-
-
 import android.app.Activity;
 import android.app.ProgressDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -42,7 +32,6 @@ import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.Message;
 import android.support.v4.content.LocalBroadcastManager;
 import android.text.Html;
 import android.util.Log;
@@ -55,6 +44,13 @@ import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.text.DateFormat;
+import java.text.DecimalFormat;
+import java.util.Arrays;
+import java.util.Date;
 
 public class MainActivity extends Activity implements RadioGroup.OnCheckedChangeListener {
     private static final int REQUEST_SELECT_DEVICE = 1;
@@ -70,7 +66,20 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     private static final String FONT_LABEL_APP_ERROR = "<font color='#EE0000'>";
     private static final String FONT_LABEL_PEER_NORMAL = "<font color='#EE0000'>";
     private static final String FONT_LABEL_PEER_ERROR = "<font color='#EE0000'>";
-    public enum AppLogFontType {APP_NORMAL, APP_ERROR, PEER_NORMAL, PEER_ERROR};
+
+    Runnable guiUpdateRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mTextViewFileLabel != null) {
+                mTextViewFileLabel.setText("Incoming: " + mBytesTransfered + "/" + mBytesTotal);
+                if (mBytesTotal > 0) {
+                    mProgressBarFileStatus.setProgress(mBytesTransfered * 100 / mBytesTotal);
+                }
+            }
+            guiUpdateHandler.postDelayed(this, 50);
+        }
+    };
+
     private String mLogMessage = "";
 
     private TextView mTextViewLog, mTextViewFileLabel, mTextViewPictureStatus, mTextViewPictureFpsStatus, mTextViewConInt, mTextViewMtu;
@@ -85,32 +94,193 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     private BluetoothAdapter mBtAdapter = null;
     private Button btnConnectDisconnect;
     private boolean mMtuRequested;
-    private byte []mUartData = new byte[6];
+    private byte[] mUartData = new byte[6];
     private long mStartTimeImageTransfer;
 
     // File transfer variables
     private int mBytesTransfered = 0, mBytesTotal = 0;
-    private byte []mDataBuffer;
+    private byte[] mDataBuffer;
     private boolean mStreamActive = false;
 
     private ProgressDialog mConnectionProgDialog;
+    private final BroadcastReceiver UARTStatusChangeReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
 
-    public enum AppRunMode {Disconnected, Connected, ConnectedDuringSingleTransfer, ConnectedDuringStream};
-    public enum BleCommand {NoCommand, StartSingleCapture, StartStreaming, StopStreaming, ChangeResolution, ChangePhy, GetBleParams};
-
-    Handler guiUpdateHandler = new Handler();
-    Runnable guiUpdateRunnable = new Runnable(){
-        @Override
-        public void run(){
-            if(mTextViewFileLabel != null) {
-                mTextViewFileLabel.setText("Incoming: " + String.valueOf(mBytesTransfered) + "/" + String.valueOf(mBytesTotal));
-                if(mBytesTotal > 0) {
-                    mProgressBarFileStatus.setProgress(mBytesTransfered * 100 / mBytesTotal);
-                }
+            final Intent mIntent = intent;
+            //*********************//
+            if (action.equals(ImageTransferService.ACTION_GATT_CONNECTED)) {
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        mMtuRequested = false;
+                        mConnectionProgDialog.hide();
+                        Log.d(TAG, "UART_CONNECT_MSG");
+                        writeToLog("Connected", AppLogFontType.APP_NORMAL);
+                    }
+                });
             }
-            guiUpdateHandler.postDelayed(this, 50);
+
+            //*********************//
+            if (action.equals(ImageTransferService.ACTION_GATT_DISCONNECTED)) {
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        setGuiByAppMode(AppRunMode.Disconnected);
+                        mState = UART_PROFILE_DISCONNECTED;
+                        mUartData[0] = mUartData[1] = mUartData[2] = mUartData[3] = mUartData[4] = mUartData[5] = 0;
+                        mService.close();
+                        mTextViewMtu.setText("-");
+                        mTextViewConInt.setText("-");
+                        mConnectionProgDialog.hide();
+                        Log.d(TAG, "UART_DISCONNECT_MSG");
+                        writeToLog("Disconnected", AppLogFontType.APP_NORMAL);
+                    }
+                });
+            }
+
+            //*********************//
+            if (action.equals(ImageTransferService.ACTION_GATT_SERVICES_DISCOVERED)) {
+                mService.enableTXNotification();
+                mService.sendCommand(BleCommand.GetBleParams.ordinal(), null);
+                setGuiByAppMode(AppRunMode.Connected);
+            }
+
+            //*********************//
+            if (action.equals(ImageTransferService.ACTION_DATA_AVAILABLE)) {
+
+                final byte[] txValue = intent.getByteArrayExtra(ImageTransferService.EXTRA_DATA);
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        try {
+                            System.arraycopy(txValue, 0, mDataBuffer, mBytesTransfered, txValue.length);
+                            if (mBytesTransfered == 0) {
+                                Log.w(TAG, "First packet received: " + txValue.length + " bytes");
+                            }
+                            mBytesTransfered += txValue.length;
+                            if (mBytesTransfered >= mBytesTotal) {
+                                long elapsedTime = System.currentTimeMillis() - mStartTimeImageTransfer;
+                                float elapsedSeconds = (float) elapsedTime / 1000.0f;
+                                DecimalFormat df = new DecimalFormat("0.0");
+                                df.setMaximumFractionDigits(1);
+                                String elapsedSecondsString = df.format(elapsedSeconds);
+                                String kbpsString = df.format((float) mDataBuffer.length / elapsedSeconds * 8.0f / 1000.0f);
+                                //writeToLog("Completed in " + elapsedSecondsString + " seconds. " + kbpsString + " kbps", AppLogFontType.APP_NORMAL);
+                                mTextViewPictureStatus.setText(mDataBuffer.length / 1024 + "kB - " + elapsedSecondsString + " seconds - " + kbpsString + " kbps");
+                                mTextViewPictureStatus.setVisibility(View.VISIBLE);
+                                mTextViewPictureFpsStatus.setText(df.format(1.0f / elapsedSeconds) + " FPS");
+                                mTextViewPictureFpsStatus.setVisibility(View.VISIBLE);
+                                Bitmap bitmap;
+                                Log.w(TAG, "attempting JPEG decode");
+                                try {
+                                    byte[] jpgHeader = new byte[]{-1, -40, -1, -32};
+                                    if (Arrays.equals(jpgHeader, Arrays.copyOfRange(mDataBuffer, 0, 4))) {
+                                        // New plus version of the Arducam mini 2MP module
+                                        bitmap = BitmapFactory.decodeByteArray(mDataBuffer, 0, mDataBuffer.length);
+                                        mMainImage.setImageBitmap(bitmap);
+                                    } else if (Arrays.equals(jpgHeader, Arrays.copyOfRange(mDataBuffer, 1, 5))) {
+                                        // Old version of the Arducam mini 2MP module
+                                        bitmap = BitmapFactory.decodeByteArray(mDataBuffer, 1, mDataBuffer.length - 1);
+                                        mMainImage.setImageBitmap(bitmap);
+                                    } else {
+                                        Log.w(TAG, "JPG header missing! Gonna guess.");
+                                        bitmap = BitmapFactory.decodeByteArray(mDataBuffer, 0, mDataBuffer.length);
+                                        if (bitmap == null) {
+                                            Log.w(TAG, "NULL bitmap! Couldn't decode! Try with offset 1...");
+                                            bitmap = BitmapFactory.decodeByteArray(mDataBuffer, 1, mDataBuffer.length - 1);
+                                            if (bitmap == null) {
+                                                Log.w(TAG, "NULL bitmap! Couldn't decode with offset 1.");
+                                            }
+                                        }
+                                        mMainImage.setImageBitmap(bitmap);
+                                    }
+                                } catch (Exception e) {
+                                    Log.w(TAG, "Bitmapfactory fail :(");
+                                }
+                                if (!mStreamActive) {
+                                    setGuiByAppMode(AppRunMode.Connected);
+                                }
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, e.toString());
+                            e.printStackTrace();
+                        }
+                    }
+                });
+            }
+            //*********************//
+            if (action.equals(ImageTransferService.ACTION_IMG_INFO_AVAILABLE)) {
+                final byte[] txValue = intent.getByteArrayExtra(ImageTransferService.EXTRA_DATA);
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        try {
+                            switch (txValue[0]) {
+                                case 1:
+                                    // Start a new file transfer
+                                    ByteBuffer byteBuffer = ByteBuffer.wrap(Arrays.copyOfRange(txValue, 1, 5));
+                                    byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+                                    int fileSize = byteBuffer.getInt();
+                                    mBytesTotal = fileSize;
+                                    mDataBuffer = new byte[fileSize];
+                                    mTextViewFileLabel.setText("Incoming file: " + fileSize + " bytes.");
+                                    mBytesTransfered = 0;
+                                    mStartTimeImageTransfer = System.currentTimeMillis();
+                                    break;
+
+                                case 2:
+                                    ByteBuffer mtuBB = ByteBuffer.wrap(Arrays.copyOfRange(txValue, 1, 3));
+                                    mtuBB.order(ByteOrder.LITTLE_ENDIAN);
+                                    short mtu = mtuBB.getShort();
+                                    mTextViewMtu.setText(String.valueOf(mtu) + " bytes");
+                                    if (!mMtuRequested && mtu < 64) {
+                                        mService.requestMtu(247);
+                                        writeToLog("Requesting 247 byte MTU from app", AppLogFontType.APP_NORMAL);
+                                        mMtuRequested = true;
+                                    }
+                                    ByteBuffer ciBB = ByteBuffer.wrap(Arrays.copyOfRange(txValue, 3, 5));
+                                    ciBB.order(ByteOrder.LITTLE_ENDIAN);
+                                    short conInterval = ciBB.getShort();
+                                    mTextViewConInt.setText((float) conInterval * 1.25f + "ms");
+                                    short txPhy = txValue[5];
+                                    short rxPhy = txValue[6];
+                                    if (txPhy == 0x0001 && mSpinnerPhy.getSelectedItemPosition() == 1) {
+                                        mSpinnerPhy.setSelection(0);
+                                        writeToLog("2Mbps not supported!", AppLogFontType.APP_ERROR);
+                                    } else {
+                                        writeToLog("Parameters updated.", AppLogFontType.APP_NORMAL);
+                                    }
+                                    break;
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, e.toString());
+                        }
+                    }
+                });
+            }
+            //*********************//
+            if (action.equals(ImageTransferService.DEVICE_DOES_NOT_SUPPORT_IMAGE_TRANSFER)) {
+                //showMessage("Device doesn't support UART. Disconnecting");
+                writeToLog("APP: Invalid BLE service, disconnecting!", AppLogFontType.APP_ERROR);
+                mService.disconnect();
+            }
         }
     };
+    //UART service connected/disconnected
+    private ServiceConnection mServiceConnection = new ServiceConnection() {
+        public void onServiceConnected(ComponentName className, IBinder rawBinder) {
+            mService = ((ImageTransferService.LocalBinder) rawBinder).getService();
+            Log.d(TAG, "onServiceConnected mService= " + mService);
+            if (!mService.initialize()) {
+                Log.e(TAG, "Unable to initialize Bluetooth");
+                finish();
+            }
+        }
+
+        public void onServiceDisconnected(ComponentName classname) {
+            ////     mService.disconnect(mDevice);
+            mService = null;
+        }
+    };
+
+    Handler guiUpdateHandler = new Handler();
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -123,25 +293,25 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
             finish();
             return;
         }
-        btnConnectDisconnect    = (Button) findViewById(R.id.btn_select);
-        mTextViewLog = (TextView)findViewById(R.id.textViewLog);
-        mTextViewFileLabel = (TextView)findViewById(R.id.textViewFileLabel);
-        mTextViewPictureStatus = (TextView)findViewById(R.id.textViewImageStatus);
-        mTextViewPictureFpsStatus = (TextView)findViewById(R.id.textViewImageFpsStatus);
-        mTextViewConInt = (TextView)findViewById(R.id.textViewCI);
-        mTextViewMtu = (TextView)findViewById(R.id.textViewMTU);
-        mProgressBarFileStatus = (ProgressBar)findViewById(R.id.progressBarFile);
-        mBtnTakePicture = (Button)findViewById(R.id.buttonTakePicture);
-        mBtnStartStream = (Button)findViewById(R.id.buttonStartStream);
-        mMainImage = (ImageView)findViewById(R.id.imageTransfered);
-        mSpinnerResolution = (Spinner)findViewById(R.id.spinnerResolution);
+        btnConnectDisconnect = (Button) findViewById(R.id.btn_select);
+        mTextViewLog = (TextView) findViewById(R.id.textViewLog);
+        mTextViewFileLabel = (TextView) findViewById(R.id.textViewFileLabel);
+        mTextViewPictureStatus = (TextView) findViewById(R.id.textViewImageStatus);
+        mTextViewPictureFpsStatus = (TextView) findViewById(R.id.textViewImageFpsStatus);
+        mTextViewConInt = (TextView) findViewById(R.id.textViewCI);
+        mTextViewMtu = (TextView) findViewById(R.id.textViewMTU);
+        mProgressBarFileStatus = (ProgressBar) findViewById(R.id.progressBarFile);
+        mBtnTakePicture = (Button) findViewById(R.id.buttonTakePicture);
+        mBtnStartStream = (Button) findViewById(R.id.buttonStartStream);
+        mMainImage = (ImageView) findViewById(R.id.imageTransfered);
+        mSpinnerResolution = (Spinner) findViewById(R.id.spinnerResolution);
         mSpinnerResolution.setSelection(1);
-        mSpinnerPhy = (Spinner)findViewById(R.id.spinnerPhy);
+        mSpinnerPhy = (Spinner) findViewById(R.id.spinnerPhy);
         mConnectionProgDialog = new ProgressDialog(this);
         mConnectionProgDialog.setTitle("Connecting...");
         mConnectionProgDialog.setCancelable(false);
         service_init();
-        for(int i = 0; i < 6; i++) mUartData[i] = 0;
+        for (int i = 0; i < 6; i++) mUartData[i] = 0;
 
         // Handler Disconnect & Connect button
         btnConnectDisconnect.setOnClickListener(new View.OnClickListener() {
@@ -171,7 +341,7 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         mBtnTakePicture.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if(mService != null){
+                if (mService != null) {
                     mService.sendCommand(BleCommand.StartSingleCapture.ordinal(), null);
                     setGuiByAppMode(AppRunMode.ConnectedDuringSingleTransfer);
                 }
@@ -181,14 +351,13 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         mBtnStartStream.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if(mService != null){
-                    if(!mStreamActive) {
+                if (mService != null) {
+                    if (!mStreamActive) {
                         mStreamActive = true;
 
                         mService.sendCommand(BleCommand.StartStreaming.ordinal(), null);
                         setGuiByAppMode(AppRunMode.ConnectedDuringStream);
-                    }
-                    else {
+                    } else {
                         mStreamActive = false;
 
                         mService.sendCommand(BleCommand.StopStreaming.ordinal(), null);
@@ -201,9 +370,9 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         mSpinnerResolution.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parentView, View selectedItemView, int position, long id) {
-                if(mService != null && mService.isConnected()){
-                    byte []cmdData = new byte[1];
-                    cmdData[0] = (byte)position;
+                if (mService != null && mService.isConnected()) {
+                    byte[] cmdData = new byte[1];
+                    cmdData[0] = (byte) position;
                     mService.sendCommand(BleCommand.ChangeResolution.ordinal(), cmdData);
                 }
             }
@@ -216,9 +385,9 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         mSpinnerPhy.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parentView, View selectedItemView, int position, long id) {
-                if(mService != null && mService.isConnected()){
-                    byte []cmdData = new byte[1];
-                    cmdData[0] = (byte)position;
+                if (mService != null && mService.isConnected()) {
+                    byte[] cmdData = new byte[1];
+                    cmdData[0] = (byte) position;
                     mService.sendCommand(BleCommand.ChangePhy.ordinal(), cmdData);
                 }
             }
@@ -234,28 +403,8 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         setGuiByAppMode(AppRunMode.Disconnected);
     }
 
-
-    //UART service connected/disconnected
-    private ServiceConnection mServiceConnection = new ServiceConnection() {
-        public void onServiceConnected(ComponentName className, IBinder rawBinder) {
-            mService = ((ImageTransferService.LocalBinder) rawBinder).getService();
-            Log.d(TAG, "onServiceConnected mService= " + mService);
-            if (!mService.initialize()) {
-                Log.e(TAG, "Unable to initialize Bluetooth");
-                finish();
-            }
-        }
-
-        public void onServiceDisconnected(ComponentName classname) {
-       ////     mService.disconnect(mDevice);
-        		mService = null;
-        }
-    };
-
-    private void setGuiByAppMode(AppRunMode appMode)
-    {
-        switch(appMode)
-        {
+    private void setGuiByAppMode(AppRunMode appMode) {
+        switch (appMode) {
             case Connected:
                 mBtnTakePicture.setEnabled(true);
                 mBtnStartStream.setEnabled(true);
@@ -291,11 +440,11 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         }
     }
 
-    private void writeToLog(String message, AppLogFontType msgType){
+    private void writeToLog(String message, AppLogFontType msgType) {
         String currentDateTimeString = DateFormat.getTimeInstance().format(new Date());
         String newMessage = currentDateTimeString + " - " + message;
         String fontHtmlTag;
-        switch(msgType){
+        switch (msgType) {
             case APP_NORMAL:
                 fontHtmlTag = "<font color='#000000'>";
                 break;
@@ -316,168 +465,46 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         mTextViewLog.setText(Html.fromHtml(mLogMessage));
     }
 
-    private final BroadcastReceiver UARTStatusChangeReceiver = new BroadcastReceiver() {
-        public void onReceive(Context context, Intent intent) {
-        String action = intent.getAction();
-
-        final Intent mIntent = intent;
-        //*********************//
-        if (action.equals(ImageTransferService.ACTION_GATT_CONNECTED)) {
-            runOnUiThread(new Runnable() {
-                public void run() {
-                    mMtuRequested = false;
-                    mConnectionProgDialog.hide();
-                    Log.d(TAG, "UART_CONNECT_MSG");
-                    writeToLog("Connected", AppLogFontType.APP_NORMAL);
-                }
-            });
-        }
-
-          //*********************//
-        if (action.equals(ImageTransferService.ACTION_GATT_DISCONNECTED)) {
-            runOnUiThread(new Runnable() {
-                public void run() {
-                    setGuiByAppMode(AppRunMode.Disconnected);
-                    mState = UART_PROFILE_DISCONNECTED;
-                    mUartData[0] = mUartData[1] = mUartData[2] = mUartData[3] = mUartData[4] = mUartData[5] = 0;
-                    mService.close();
-                    mTextViewMtu.setText("-");
-                    mTextViewConInt.setText("-");
-                    mConnectionProgDialog.hide();
-                    Log.d(TAG, "UART_DISCONNECT_MSG");
-                    writeToLog("Disconnected", AppLogFontType.APP_NORMAL);
-                }
-            });
-        }
-
-        //*********************//
-        if (action.equals(ImageTransferService.ACTION_GATT_SERVICES_DISCOVERED)) {
-            mService.enableTXNotification();
-            mService.sendCommand(BleCommand.GetBleParams.ordinal(), null);
-            setGuiByAppMode(AppRunMode.Connected);
-        }
-
-        //*********************//
-        if (action.equals(ImageTransferService.ACTION_DATA_AVAILABLE)) {
-
-            final byte[] txValue = intent.getByteArrayExtra(ImageTransferService.EXTRA_DATA);
-            runOnUiThread(new Runnable() {
-            public void run() {
-                try {
-                    System.arraycopy(txValue, 0, mDataBuffer, mBytesTransfered, txValue.length);
-                    if(mBytesTransfered == 0){
-                        Log.w(TAG, "First packet received: " + String.valueOf(txValue.length) + " bytes");
-                    }
-                    mBytesTransfered += txValue.length;
-                    if(mBytesTransfered >= mBytesTotal) {
-                        long elapsedTime = System.currentTimeMillis() - mStartTimeImageTransfer;
-                        float elapsedSeconds = (float)elapsedTime / 1000.0f;
-                        DecimalFormat df = new DecimalFormat("0.0");
-                        df.setMaximumFractionDigits(1);
-                        String elapsedSecondsString = df.format(elapsedSeconds);
-                        String kbpsString = df.format((float)mDataBuffer.length / elapsedSeconds * 8.0f / 1000.0f);
-                        //writeToLog("Completed in " + elapsedSecondsString + " seconds. " + kbpsString + " kbps", AppLogFontType.APP_NORMAL);
-                        mTextViewPictureStatus.setText(String.valueOf(mDataBuffer.length / 1024) + "kB - " + elapsedSecondsString + " seconds - " + kbpsString + " kbps");
-                        mTextViewPictureStatus.setVisibility(View.VISIBLE);
-                        mTextViewPictureFpsStatus.setText(df.format(1.0f / elapsedSeconds)  + " FPS");
-                        mTextViewPictureFpsStatus.setVisibility(View.VISIBLE);
-                        Bitmap bitmap;
-                        Log.w(TAG, "attempting JPEG decode");
-                        try {
-                            byte[] jpgHeader = new byte[]{-1, -40, -1, -32};
-                            if(Arrays.equals(jpgHeader, Arrays.copyOfRange(mDataBuffer, 0, 4))) {
-                                // New plus version of the Arducam mini 2MP module
-                                bitmap = BitmapFactory.decodeByteArray(mDataBuffer, 0, mDataBuffer.length);
-                                mMainImage.setImageBitmap(bitmap);
-                            }
-                            else if(Arrays.equals(jpgHeader, Arrays.copyOfRange(mDataBuffer, 1, 5))){
-                                // Old version of the Arducam mini 2MP module
-                                bitmap = BitmapFactory.decodeByteArray(mDataBuffer, 1, mDataBuffer.length-1);
-                                mMainImage.setImageBitmap(bitmap);
-                            }
-                            else {
-                                Log.w(TAG, "JPG header missing! Gonna guess.");
-                                bitmap = BitmapFactory.decodeByteArray(mDataBuffer, 0, mDataBuffer.length);
-                                mMainImage.setImageBitmap(bitmap);
-                            }
-                        } catch (Exception e) {
-                            Log.w(TAG, "Bitmapfactory fail :(");
-                        }
-                        if(!mStreamActive) {
-                            setGuiByAppMode(AppRunMode.Connected);
-                        }
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, e.toString());
-                }
-            }
-            });
-        }
-        //*********************//
-        if (action.equals(ImageTransferService.ACTION_IMG_INFO_AVAILABLE)) {
-            final byte[] txValue = intent.getByteArrayExtra(ImageTransferService.EXTRA_DATA);
-            runOnUiThread(new Runnable() {
-                public void run() {
-                    try {
-                        switch(txValue[0]) {
-                            case 1:
-                                // Start a new file transfer
-                                ByteBuffer byteBuffer = ByteBuffer.wrap(Arrays.copyOfRange(txValue, 1, 5));
-                                byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
-                                int fileSize = byteBuffer.getInt();
-                                mBytesTotal = fileSize;
-                                mDataBuffer = new byte[fileSize];
-                                mTextViewFileLabel.setText("Incoming file: " + String.valueOf(fileSize) + " bytes.");
-                                mBytesTransfered = 0;
-                                mStartTimeImageTransfer = System.currentTimeMillis();
-                                break;
-
-                            case 2:
-                                ByteBuffer mtuBB = ByteBuffer.wrap(Arrays.copyOfRange(txValue, 1, 3));
-                                mtuBB.order(ByteOrder.LITTLE_ENDIAN);
-                                short mtu = mtuBB.getShort();
-                                mTextViewMtu.setText(String.valueOf(mtu) + " bytes");
-                                if(!mMtuRequested && mtu < 64){
-                                    mService.requestMtu(247);
-                                    writeToLog("Requesting 247 byte MTU from app", AppLogFontType.APP_NORMAL);
-                                    mMtuRequested = true;
-                                }
-                                ByteBuffer ciBB = ByteBuffer.wrap(Arrays.copyOfRange(txValue, 3, 5));
-                                ciBB.order(ByteOrder.LITTLE_ENDIAN);
-                                short conInterval = ciBB.getShort();
-                                mTextViewConInt.setText(String.valueOf((float)conInterval * 1.25f) + "ms");
-                                short txPhy = txValue[5];
-                                short rxPhy = txValue[6];
-                                if(txPhy == 0x0001 && mSpinnerPhy.getSelectedItemPosition() == 1) {
-                                    mSpinnerPhy.setSelection(0);
-                                    writeToLog("2Mbps not supported!", AppLogFontType.APP_ERROR);
-                                }
-                                else {
-                                    writeToLog("Parameters updated.", AppLogFontType.APP_NORMAL);
-                                }
-                                break;
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, e.toString());
-                    }
-                }
-            });
-        }
-        //*********************//
-        if (action.equals(ImageTransferService.DEVICE_DOES_NOT_SUPPORT_IMAGE_TRANSFER)){
-            //showMessage("Device doesn't support UART. Disconnecting");
-            writeToLog("APP: Invalid BLE service, disconnecting!",  AppLogFontType.APP_ERROR);
-            mService.disconnect();
-        }
-        }
-    };
-
     private void service_init() {
         Intent bindIntent = new Intent(this, ImageTransferService.class);
         bindService(bindIntent, mServiceConnection, Context.BIND_AUTO_CREATE);
-  
+
         LocalBroadcastManager.getInstance(this).registerReceiver(UARTStatusChangeReceiver, makeGattUpdateIntentFilter());
     }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        Log.d(TAG, "onDestroy()");
+
+        try {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(UARTStatusChangeReceiver);
+        } catch (Exception ignore) {
+            Log.e(TAG, ignore.toString());
+        }
+        unbindService(mServiceConnection);
+        mService.stopSelf();
+        mService = null;
+
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        Log.d(TAG, "onResume");
+        if (!mBtAdapter.isEnabled()) {
+            Log.i(TAG, "onResume - BT not enabled yet");
+            Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+            startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
+        }
+
+    }
+
+    @Override
+    public void onCheckedChanged(RadioGroup group, int checkedId) {
+
+    }
+
     private static IntentFilter makeGattUpdateIntentFilter() {
         final IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(ImageTransferService.ACTION_GATT_CONNECTED);
@@ -488,25 +515,15 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         intentFilter.addAction(ImageTransferService.DEVICE_DOES_NOT_SUPPORT_IMAGE_TRANSFER);
         return intentFilter;
     }
+
     @Override
     public void onStart() {
         super.onStart();
     }
 
-    @Override
-    public void onDestroy() {
-    	 super.onDestroy();
-        Log.d(TAG, "onDestroy()");
-        
-        try {
-        	LocalBroadcastManager.getInstance(this).unregisterReceiver(UARTStatusChangeReceiver);
-        } catch (Exception ignore) {
-            Log.e(TAG, ignore.toString());
-        } 
-        unbindService(mServiceConnection);
-        mService.stopSelf();
-        mService= null;
-       
+    private void showMessage(String msg) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+
     }
 
     @Override
@@ -528,15 +545,16 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
     }
 
     @Override
-    public void onResume() {
-        super.onResume();
-        Log.d(TAG, "onResume");
-        if (!mBtAdapter.isEnabled()) {
-            Log.i(TAG, "onResume - BT not enabled yet");
-            Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
+    public void onBackPressed() {
+        if (mState == UART_PROFILE_CONNECTED) {
+            Intent startMain = new Intent(Intent.ACTION_MAIN);
+            startMain.addCategory(Intent.CATEGORY_HOME);
+            startMain.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(startMain);
+            showMessage("nRFUART's running in background.\n             Disconnect to exit");
+        } else {
+            finish();
         }
- 
     }
 
     @Override
@@ -580,28 +598,10 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
         }
     }
 
-    @Override
-    public void onCheckedChanged(RadioGroup group, int checkedId) {
-       
-    }
+    public enum AppLogFontType {APP_NORMAL, APP_ERROR, PEER_NORMAL, PEER_ERROR}
 
-    
-    private void showMessage(String msg) {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-  
-    }
 
-    @Override
-    public void onBackPressed() {
-        if (mState == UART_PROFILE_CONNECTED) {
-            Intent startMain = new Intent(Intent.ACTION_MAIN);
-            startMain.addCategory(Intent.CATEGORY_HOME);
-            startMain.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(startMain);
-            showMessage("nRFUART's running in background.\n             Disconnect to exit");
-        }
-        else {
-            finish();
-        }
-    }
+    public enum AppRunMode {Disconnected, Connected, ConnectedDuringSingleTransfer, ConnectedDuringStream}
+
+    public enum BleCommand {NoCommand, StartSingleCapture, StartStreaming, StopStreaming, ChangeResolution, ChangePhy, GetBleParams}
 }
