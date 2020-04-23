@@ -30,7 +30,6 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
 import android.support.v4.content.LocalBroadcastManager;
@@ -173,7 +172,7 @@ public class MainActivity extends Activity implements RadioGroup.OnCheckedChange
                                 Log.w(TAG, "attempting JPEG decode");
 
                                 // save image data to storage
-                                File outFile = new File(Environment.getExternalStorageDirectory(),
+                                File outFile = new File(context.getExternalFilesDir(null),
                                         "/image_" + System.currentTimeMillis() + ".bin");
                                 try (FileOutputStream outputStream = new FileOutputStream(outFile)) {
                                     outputStream.write(mDataBuffer);
